@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Local credentials and inventories
+.env
+.env.*
+!.env.example
+.ssh/
+inventory.json
+my-devices.json
+*.setup-ssh.bak
+
+# Local editor and OS files
+.DS_Store
+Thumbs.db
+*.swp

@@ -1,0 +1,4 @@
+include LICENSE README.md CONTRIBUTING.md SECURITY.md
+include dev.sh dev.ps1 uv.lock
+include scripts/dev.py
+recursive-include docs *.md

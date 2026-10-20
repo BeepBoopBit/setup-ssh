@@ -1,0 +1,114 @@
+name: Check and publish
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Check and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.12.7"
+          python-version: "3.11"
+
+      - name: Prepare development environment
+        run: ./dev.sh develop
+
+      - name: Check formatting and lint
+        run: ./dev.sh check
+
+      - name: Run tests
+        run: ./dev.sh test -q
+
+      - name: Check version and release tag
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
+        run: |
+          uv run --locked python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+          from setup_ssh import __version__
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+          version = project["version"]
+          if __version__ != version:
+              raise SystemExit("Update __version__ and pyproject.toml to the same version.")
+          tag = os.environ.get("RELEASE_TAG", "")
+          if tag and tag != f"v{version}":
+              raise SystemExit(f"Release tag {tag!r} must be v{version}.")
+          print(f"Ready to build {project['name']} {version}")
+          PY
+
+      - name: Build distributions
+        run: ./dev.sh build
+
+      - name: Check package metadata and README
+        run: uvx --from twine==7.0.0 twine check --strict dist/*
+
+      - name: Try the wheel in a fresh environment
+        run: |
+          uv venv "$RUNNER_TEMP/package-smoke"
+          uv pip install --python "$RUNNER_TEMP/package-smoke/bin/python" dist/*.whl
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/package-smoke/bin/setup-ssh" --help
+          "$RUNNER_TEMP/package-smoke/bin/python" - <<'PY'
+          from importlib.metadata import version
+          from importlib.resources import files
+          from setup_ssh import __version__
+
+          if __version__ != version("setup-ssh-cli"):
+              raise SystemExit("Installed package and CLI versions differ.")
+          for name in ("posix.sh", "windows.ps1"):
+              if not files("setup_ssh").joinpath("templates", name).read_text():
+                  raise SystemExit(f"Missing template: {name}")
+          PY
+
+      - name: Save distributions
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: python-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    if: github.event_name == 'release'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/p/setup-ssh-cli
+    permissions:
+      id-token: write
+    steps:
+      - name: Download checked distributions
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: python-distributions
+          path: dist/
+
+      - name: Publish with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
