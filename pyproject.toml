@@ -24,6 +24,9 @@ classifiers = [
 ]
 dependencies = ["paramiko>=3.4,<5"]
 
+[project.optional-dependencies]
+dashboard = ["textual>=1"]
+
 [project.urls]
 Repository = "https://github.com/BeepBoopBit/setup-ssh"
 Issues = "https://github.com/BeepBoopBit/setup-ssh/issues"

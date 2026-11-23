@@ -98,9 +98,20 @@ case "$ACTION" in
             managed "$SSH_DIR/config" '' prepend
         fi
         ;;
-    check)
+    check|check-alias)
         [ -f "$GROUP_DIR/config" ] || fail "No managed SSH configuration. Run sync first."
-        exec ssh -F "$GROUP_DIR/config" \
+        set --
+        if [ "$ACTION" = check ]; then
+            set -- -F "$GROUP_DIR/config"
+        else
+            effective=$(ssh -G -T "$DESTINATION") || fail "Cannot resolve SSH alias $DESTINATION."
+            pin=$(printf '%s\n' "$effective" | awk '$1 == "hostkeyalias" { print $2; exit }')
+            [ "$pin" = "$DESTINATION_PIN" ] ||
+                fail "SSH alias $DESTINATION does not select this fleet's host key. Check ~/.ssh/config and run sync."
+            set -- -T -o StrictHostKeyChecking=yes -o UpdateHostKeys=no \
+                -o ClearAllForwardings=yes -o ForwardAgent=no -o ControlPath=none
+        fi
+        exec ssh "$@" \
             -o BatchMode=yes -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no \
             -o PreferredAuthentications=publickey -o IdentityAgent=none \
             -o ConnectionAttempts=1 -o "ConnectTimeout=$TIMEOUT" \

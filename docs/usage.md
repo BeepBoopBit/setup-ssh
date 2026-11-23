@@ -259,3 +259,42 @@ key is missing, then re-enroll and sync. Setup deliberately refuses to silently
 replace an orphaned or changed key.
 
 See [troubleshooting](troubleshooting.md) for common failures and recovery steps.
+
+## Dashboard and portable inventory
+
+Install the optional dashboard dependencies with
+`uv tool install "setup-ssh-cli[dashboard]"`, or use
+`uv run --extra dashboard setup-ssh dashboard` from a repository checkout.
+
+```sh
+setup-ssh dashboard
+```
+
+The Connections tab shows one result per source and destination. The Devices
+tab shows whether the dashboard can reach each source and use it for checks.
+Highlight a row or cell for the latest result, timestamp, and error detail.
+Press `r` to refresh and `q` to quit.
+
+Checks use batch SSH with strict host verification. A source that cannot be
+opened has untested outgoing connections. Other sources still try that device
+as a destination if it has completed setup. The dashboard leaves SSH files
+and the inventory unchanged.
+
+To view the same fleet on an already enrolled computer, export the inventory,
+transfer the JSON using a method you trust, then import it on the receiving
+account. For example, to open the dashboard on `mac`:
+
+```sh
+setup-ssh export fleet.json
+scp fleet.json mac:~/
+# Run these two commands on mac:
+setup-ssh import ~/fleet.json --local mac
+setup-ssh dashboard
+```
+
+The export includes public keys, verified host keys, and network details.
+Private keys stay on each enrolled computer. Import creates a read-only
+inventory for viewing and checking the fleet. Use the original inventory for
+`add`, `remove`, and `sync`. To update the copy, export to a fresh file and
+import it again. Import can replace a read-only copy of the same fleet. Use
+`--config` before the command to choose a separate inventory file if needed.

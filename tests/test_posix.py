@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from setup_ssh.render import script
+from setup_ssh.render import host_alias, script
 from setup_ssh.state import Device, Inventory, validate_key
 
 pytestmark = pytest.mark.skipif(
@@ -120,3 +120,36 @@ def test_missing_private_key_does_not_silently_rotate(tmp_path):
     result = execute(inventory, device, "prepare", home)
     assert result.returncode != 0
     assert "private key is missing" in result.stderr
+
+
+def test_dashboard_alias_check_uses_normal_config(tmp_path, monkeypatch):
+    home, inventory, device = prepared(tmp_path)
+    assert execute(inventory, device, "apply", home).returncode == 0
+    other = inventory.find("second")
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    ssh = fake_bin / "ssh"
+    ssh.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = -G ]; then printf "hostkeyalias %s\\n" "$PIN"; exit; fi\n'
+        'case " $* " in *" -F "*) exit 9;; esac\n'
+        'case " $* " in *" StrictHostKeyChecking=yes "*) echo setup-ssh-ok;; *) exit 9;; esac\n'
+    )
+    ssh.chmod(0o755)
+    monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ["PATH"])
+
+    def check(pin):
+        return subprocess.run(
+            ["sh", "-s"],
+            input=script(inventory, device, "check-alias", destination=other),
+            env={**os.environ, "HOME": str(home), "PIN": pin},
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+
+    assert check(host_alias(inventory, other)).stdout.strip() == "setup-ssh-ok"
+    failure = check("some-other-alias")
+    assert failure.returncode != 0
+    assert "does not select this fleet's host key" in failure.stderr
