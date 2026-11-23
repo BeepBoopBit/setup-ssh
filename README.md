@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/icon.png" alt="setup-ssh icon" width="160" height="160">
+</p>
+
 # setup-ssh
 
 I made this because my lazy ass got tired of setting up SSH keys and remembering
