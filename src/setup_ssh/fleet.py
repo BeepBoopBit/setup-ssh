@@ -25,7 +25,7 @@ class Fleet:
     def __init__(
         self,
         inventory: Inventory,
-        path: Path,
+        path: Path | None,
         connector: Connector,
         output: Callable[[str], None] = print,
     ):
@@ -35,6 +35,8 @@ class Fleet:
         self.output = output
 
     def save(self) -> None:
+        if self.path is None or self.inventory.read_only:
+            raise SetupError("This inventory is read-only.")
         self.inventory.save(self.path)
 
     def connect_all(self, *, skip_offline: bool = False) -> dict[str, Session]:
@@ -65,6 +67,8 @@ class Fleet:
             raise
 
     def sync(self, *, check: bool = True, skip_offline: bool = False) -> list[Check]:
+        if self.path is None or self.inventory.read_only:
+            raise SetupError("This inventory is read-only.")
         if not self.inventory.devices:
             raise SetupError("No devices are enrolled. Run setup-ssh init or add first.")
         sessions = self.connect_all(skip_offline=skip_offline)
@@ -136,31 +140,34 @@ class Fleet:
             for destination in available:
                 if source.id == destination.id:
                     continue
-                try:
-                    result = sessions[source.id].run(
-                        script(
-                            self.inventory,
-                            source,
-                            "check",
-                            destination=destination,
-                            timeout=self.connector.timeout,
-                        ),
-                        timeout=self.connector.timeout + 15,
-                    )
-                    ok = result.code == 0 and "setup-ssh-ok" in result.stdout.splitlines()
-                    detail = (
-                        ""
-                        if ok
-                        else (result.stderr or result.stdout or f"exit {result.code}").strip()
-                    )
-                except (SetupError, OSError, paramiko.SSHException) as exc:
-                    ok, detail = False, str(exc)
-                check = Check(source.name, destination.name, ok, detail)
+                check = self.check_direction(sessions[source.id], source, destination)
                 checks.append(check)
-                self.output(f"  {source.name} -> {destination.name}: {'OK' if ok else 'FAILED'}")
-                if detail:
-                    self.output(f"    {detail}")
+                self.output(
+                    f"  {source.name} -> {destination.name}: {'OK' if check.ok else 'FAILED'}"
+                )
+                if check.detail:
+                    self.output(f"    {check.detail}")
         return checks
+
+    def check_direction(
+        self, session: Session, source: Device, destination: Device, *, normal_alias: bool = False
+    ) -> Check:
+        try:
+            result = session.run(
+                script(
+                    self.inventory,
+                    source,
+                    "check-alias" if normal_alias else "check",
+                    destination=destination,
+                    timeout=self.connector.timeout,
+                ),
+                timeout=self.connector.timeout + 15,
+            )
+            ok = result.code == 0 and "setup-ssh-ok" in result.stdout.splitlines()
+            detail = "" if ok else (result.stderr or result.stdout or f"exit {result.code}").strip()
+        except (SetupError, OSError, EOFError, paramiko.SSHException) as exc:
+            ok, detail = False, str(exc)
+        return Check(source.name, destination.name, ok, detail)
 
     def check(self) -> list[Check]:
         if len(self.inventory.devices) < 2:
@@ -175,6 +182,8 @@ class Fleet:
                 session.close()
 
     def remove(self, device: Device) -> list[str]:
+        if self.path is None or self.inventory.read_only:
+            raise SetupError("This inventory is read-only.")
         # Save revocation intent first: a future sync must never reauthorize this device.
         self.inventory.devices.remove(device)
         self.save()

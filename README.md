@@ -66,6 +66,7 @@ does both steps for you.
 
 ```sh
 setup-ssh list                       # saved devices
+setup-ssh dashboard                  # live device and connection status (optional extra)
 setup-ssh sync --skip-offline        # update the ones that are online
 setup-ssh --batch sync --skip-offline # same, with no password/trust prompts
 setup-ssh check                      # test every direction; all devices online
@@ -73,6 +74,8 @@ setup-ssh remove desktop             # remove a device's managed access
 setup-ssh doctor --os windows        # SSH setup instructions for an OS
 setup-ssh --help
 ```
+
+[Install the dashboard and copy an inventory to another enrolled device](docs/usage.md#dashboard-and-portable-inventory).
 
 Removing a device needs to reach the other computers to revoke its access there.
 If some are offline, sync them later.

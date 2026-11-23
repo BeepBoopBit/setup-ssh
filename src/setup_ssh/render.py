@@ -81,7 +81,9 @@ def script(
     destination: Device | None = None,
     timeout: int = 10,
 ) -> str:
-    if action not in {"prepare", "apply", "remove", "check"}:
+    if action == "check-alias" and destination is None:
+        raise ValueError("Alias checks require a destination.")
+    if action not in {"prepare", "apply", "remove", "check", "check-alias"}:
         raise ValueError(f"Unknown action: {action}")
     payload = {
         "group": inventory.group_id,
@@ -93,6 +95,8 @@ def script(
         "known_hosts": known_hosts(inventory) if action == "apply" else "",
         "authorized_keys": authorized_keys(inventory, device) if action == "apply" else "",
     }
+    if action == "check-alias" and destination is not None:
+        payload["destination_pin"] = host_alias(inventory, destination)
     if device.platform == "windows":
         encoded = base64.b64encode(json.dumps(payload).encode()).decode()
         template = files("setup_ssh").joinpath("templates/windows.ps1").read_text("utf-8")

@@ -4,6 +4,7 @@ import argparse
 import getpass
 import socket
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import paramiko
@@ -85,6 +86,12 @@ def make_parser() -> argparse.ArgumentParser:
         "--dry-run", action="store_true", help="Show the saved plan without connecting"
     )
     commands.add_parser("check", help="Test all connection directions without editing SSH files")
+    commands.add_parser("dashboard", help="Inspect devices and live peer SSH connections")
+    export = commands.add_parser("export", help="Export a portable public inventory")
+    export.add_argument("file", type=Path)
+    import_command = commands.add_parser("import", help="Import a read-only fleet inventory")
+    import_command.add_argument("file", type=Path)
+    import_command.add_argument("--local", required=True, help="Alias of this enrolled account")
     commands.add_parser("list", help="List enrolled devices")
     commands.add_parser("plan", help="Show the saved plan without connecting or modifying files")
     remove = commands.add_parser("remove", help="Remove a device and revoke its key on peers")
@@ -115,6 +122,36 @@ def report(checks: list[Check]) -> int:
     return 1 if failures else 0
 
 
+def import_inventory(
+    path: Path, existing: Inventory, source: Path, local: str, batch: bool
+) -> None:
+    portable = Inventory.load(source.expanduser())
+    if not portable.devices:
+        raise SetupError("The source file has no enrolled devices.")
+    selected = portable.find(local)
+    if not current_account_matches(selected.user):
+        raise SetupError(f"Run the import as the enrolled account {selected.user}.")
+    if selected.platform not in {"auto", local_platform()}:
+        raise SetupError(f"{selected.name} is enrolled as {selected.platform}.")
+    if not selected.public_key or not selected.host_key:
+        raise SetupError(f"Finish syncing {selected.name} on the management machine before import.")
+    if path.exists() and (not existing.read_only or existing.group_id != portable.group_id):
+        raise SetupError(
+            "Choose a different --config path. The destination contains another inventory."
+        )
+    imported = replace(
+        portable,
+        devices=[replace(device, local=device.id == selected.id) for device in portable.devices],
+        version=2,
+    )
+    print(f"Read-only inventory for {selected.name} at {path}")
+    for device in imported.devices:
+        print(f"  {device.name:16} {device.user}@{device.host}:{device.port}")
+    if batch or confirm("Save this inventory?"):
+        imported.save(path, overwrite=existing.read_only)
+        print("Inventory saved. Run setup-ssh dashboard to inspect connections.")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = make_parser()
     args = parser.parse_args(argv)
@@ -132,6 +169,37 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         path = args.config.expanduser().absolute()
         inventory = Inventory.load(path)
+        if inventory.read_only and args.command in {"init", "add", "sync", "remove"}:
+            raise SetupError(
+                "This inventory is read-only. Run management commands on the original machine."
+            )
+        if args.command == "import":
+            import_inventory(path, inventory, args.file, args.local, args.batch)
+            return 0
+        if args.command == "export":
+            if not inventory.devices:
+                raise SetupError("There are no enrolled devices to export.")
+            portable = replace(
+                inventory,
+                devices=[replace(device, local=False) for device in inventory.devices],
+                version=2,
+            )
+            portable.save(args.file.expanduser(), overwrite=False)
+            print(f"Exported public inventory to {args.file}.")
+            return 0
+        if args.command == "dashboard":
+            try:
+                from .dashboard import Dashboard
+            except ModuleNotFoundError as exc:
+                if exc.name != "textual":
+                    raise
+                raise SetupError(
+                    'Install the dashboard extra with uv tool install "setup-ssh-cli[dashboard]".'
+                ) from exc
+            if not sys.stdin.isatty() or not sys.stdout.isatty():
+                raise SetupError("The dashboard requires an interactive terminal.")
+            Dashboard(path, args.timeout).run()
+            return 0
         if args.command == "list":
             if not inventory.devices:
                 print("No devices yet. Run setup-ssh init.")
@@ -151,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         connector = Connector(
             inventory,
             timeout=args.timeout,
-            batch=args.batch,
+            batch=args.batch or inventory.read_only,
             confirm=confirm,
             save=lambda: inventory.save(path),
         )

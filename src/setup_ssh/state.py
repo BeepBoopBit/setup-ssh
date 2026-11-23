@@ -98,8 +98,16 @@ class Inventory:
     devices: list[Device] = field(default_factory=list)
     version: int = 1
 
+    @property
+    def read_only(self) -> bool:
+        return self.version == 2
+
     def validate(self) -> None:
-        if self.version != 1 or not re.fullmatch(r"[0-9a-f]{12}", self.group_id):
+        if (
+            type(self.version) is not int
+            or self.version not in {1, 2}
+            or not re.fullmatch(r"[0-9a-f]{12}", self.group_id)
+        ):
             raise SetupError("Unsupported or malformed inventory.")
         names: set[str] = set()
         ids: set[str] = set()
@@ -145,7 +153,7 @@ class Inventory:
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
             raise SetupError(f"Cannot read inventory {path}: {exc}") from exc
 
-    def save(self, path: Path) -> None:
+    def save(self, path: Path, *, overwrite: bool = True) -> None:
         self.validate()
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, temp = tempfile.mkstemp(prefix=".inventory-", dir=path.parent)
@@ -153,7 +161,10 @@ class Inventory:
             with os.fdopen(fd, "w", encoding="utf-8") as stream:
                 json.dump(asdict(self), stream, indent=2)
                 stream.write("\n")
-            os.replace(temp, path)
+            if overwrite:
+                os.replace(temp, path)
+            else:
+                os.link(temp, path)
         finally:
             if os.path.exists(temp):
                 os.unlink(temp)

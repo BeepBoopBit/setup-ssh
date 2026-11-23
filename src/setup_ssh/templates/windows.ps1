@@ -104,10 +104,20 @@ function Authorized-Path {
 }
 
 try {
-    if ($p.action -eq 'check') {
+    if ($p.action -in 'check', 'check-alias') {
         $configPath = Join-Path $groupDir 'config'
         if (-not (Test-Path -LiteralPath $configPath)) { throw 'No managed configuration. Run sync.' }
-        & ssh.exe '-F' $configPath '-o' 'BatchMode=yes' '-o' 'PasswordAuthentication=no' `
+        $checkOptions = @('-F', $configPath)
+        if ($p.action -eq 'check-alias') {
+            $effective = & ssh.exe '-G' '-T' $p.destination
+            if ($LASTEXITCODE -ne 0) { throw "Cannot resolve SSH alias $($p.destination)." }
+            if ($effective -cnotcontains ('hostkeyalias ' + $p.destination_pin)) {
+                throw "SSH alias $($p.destination) does not select this fleet's host key. Check ~/.ssh/config and run sync."
+            }
+            $checkOptions = @('-T', '-o', 'StrictHostKeyChecking=yes', '-o', 'UpdateHostKeys=no',
+                '-o', 'ClearAllForwardings=yes', '-o', 'ForwardAgent=no', '-o', 'ControlPath=none')
+        }
+        & ssh.exe @checkOptions '-o' 'BatchMode=yes' '-o' 'PasswordAuthentication=no' `
             '-o' 'KbdInteractiveAuthentication=no' '-o' 'PreferredAuthentications=publickey' `
             '-o' 'IdentityAgent=none' '-o' 'ConnectionAttempts=1' `
             '-o' ('ConnectTimeout=' + $p.timeout) $p.destination 'echo setup-ssh-ok'
