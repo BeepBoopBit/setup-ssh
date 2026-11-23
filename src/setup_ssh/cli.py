@@ -11,6 +11,7 @@ import paramiko
 
 from . import __version__
 from .fleet import Check, Fleet
+from .local_setup import prepare_local
 from .state import Device, Inventory, SetupError, default_path
 from .transport import (
     Connector,
@@ -67,6 +68,22 @@ def make_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch", action="store_true", help="No password or host-trust prompts")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Guided enrollment and setup for a new group")
+    prepare = commands.add_parser(
+        "prepare-local", help="Enable local OpenSSH and allow peers through UFW"
+    )
+    prepare.add_argument(
+        "--allow-from",
+        action="append",
+        default=[],
+        metavar="IP",
+        help="Peer source IP (repeat for each address)",
+    )
+    prepare.add_argument(
+        "--port", type=int, default=22, help="Existing sshd port to allow (default: 22)"
+    )
+    prepare.add_argument(
+        "--dry-run", action="store_true", help="Show commands without running sudo"
+    )
     add = commands.add_parser("add", help="Enroll a device, then synchronize the group")
     add.add_argument("--name")
     add.add_argument("--host", help="LAN or NetBird address")
@@ -158,6 +175,9 @@ def main(argv: list[str] | None = None) -> int:
     if not 1 <= args.timeout <= 300:
         parser.error("--timeout must be between 1 and 300 seconds")
     try:
+        if args.command == "prepare-local":
+            prepare_local(args.allow_from, args.port, args.dry_run, args.batch, confirm)
+            return 0
         if args.command == "doctor":
             print("\n".join(diagnostics()))
             print("\n" + doctor_instructions(args.os or local_platform()))

@@ -55,7 +55,18 @@ key, and you don't need to run setup again just to SSH into something.
 
 ## Add another computer
 
-Enable SSH on it, then run these from your original setup computer:
+On a Linux target with systemd and UFW, run the guided preparation locally as
+your normal user. Repeat `--allow-from` for each trusted peer source IP.
+
+```sh
+setup-ssh prepare-local --allow-from 10.10.0.20 --allow-from 10.10.0.23
+```
+
+The command previews the changes and asks before using sudo to generate missing
+host keys, enable OpenSSH, and add the specified UFW rules. Use `--dry-run` to
+preview without invoking sudo. For other platforms and firewalls, see
+`setup-ssh doctor`. Once SSH is reachable, run these from your original setup
+computer:
 
 ```sh
 setup-ssh add --no-sync
